@@ -1,0 +1,511 @@
+---
+title: "OY_IPUMS_Analysis"
+author: "Zachre Andrews and Amy Shuff"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+if (!require("ipumsr")) stop("Reading IPUMS data into R requires the ipumsr package. It can be installed using the following command: install.packages('ipumsr')")
+
+library(ipumsr)
+library(dplyr)
+library(writexl)
+
+library(tidycensus)
+
+```
+
+## Downloading Data from IPUMS
+When getting data from IPUMS, right click on "DDI" and click "Save Link as." Then, make sure, to add .xml to the end of it as the R formula requires the data to be in XML format.
+
+Below are the available variables from IPUMS.
+
+```{r cars}
+ddi <- read_ipums_ddi("usa_00006.xml")
+OY_data <- read_ipums_micro(ddi)
+OY_data_filtered <- OY_data
+
+colnames(OY_data_filtered)
+```
+
+## Collecting FIPS County Data
+
+```{r}
+fips <- readxl::read_xlsx("ipums_usa_identified_counties.xlsx", skip = 1, col_names = TRUE)
+fips <-  fips %>% filter(STATEFIP==48)
+fips <-  fips %>% select(...2, COUNTYFIP)
+
+```
+
+## Subsetting for OY
+The resulting subset filters for Texas, those aged 16-24, those not attending school at the time of answering the survey, and those that are not employed. Not being employed considers those are are unemployed as well as those not in the labor force indicating they are not actively searching for work.
+
+```{r}
+
+OY_data_filtered$STATEFIP <- as.numeric(OY_data_filtered$STATEFIP)
+OY_data_filtered <- OY_data_filtered %>% filter(STATEFIP == "48") #filtered for Texas
+
+OY_data_filtered$AGE <- as.numeric(OY_data_filtered$AGE)
+OY_data_filtered <- OY_data_filtered %>% filter(AGE <=24 & AGE>=16) #filtered for 16-24
+
+OY_data_filtered$GRADEATT <-  as.numeric(OY_data_filtered$GRADEATT)
+OY_data_filtered <- OY_data_filtered %>% filter(!GRADEATT %in% c(4,5, 6, 7)) #filters out "Attending 5-Grad School"
+
+OY_data_filtered$EMPSTAT <-  as.numeric(OY_data_filtered$EMPSTAT)
+OY_data_filtered <- OY_data_filtered %>% filter(!EMPSTAT == 1) #filtered for 1: Employed
+
+OY_data_filtered$SAMPLE <-  as.numeric(OY_data_filtered$SAMPLE)
+OY_data_filtered <- OY_data_filtered %>% filter(SAMPLE == 202201) #filtered for 202201: ACS 2022
+
+OY_data_filtered <- merge(OY_data_filtered, fips, by = "COUNTYFIP")
+OY_data_filtered <- OY_data_filtered %>% rename(COUNTYNAME = ...2)
+
+```
+
+## Summary Statistics
+Can obtain metrics at state and county level
+
+- Total Number
+
+- Race
+
+- Ethnicity
+
+- Citizenship Status
+
+- Language Spoken
+
+- Health Insurance Coverage
+
+- Educational Attainment
+
+- Poverty Status
+
+- Food Stamps
+
+- Urban/Suburban
+
+## Total Population of OY
+
+```{r}
+
+sum(OY_data_filtered$PERWT) #485,558 individuals in Texas classified as OY
+
+```
+
+## County FIP Breakdown
+Link to County FIP Codes: https://unicede.air-worldwide.com/unicede/unicede_texas_fips_2.html
+Top 3 are Harris, Dallas, and Bexar
+
+```{r}
+
+oy_pop <- OY_data_filtered %>% 
+  group_by(COUNTYNAME) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(desc(total_PERWT)) 
+
+# 39 CountyFips
+
+oy_pop
+
+```
+
+
+
+## Race Breakdown
+1                   White 
+
+2                   Black/African American 
+
+3                   American Indian or Alaska Native
+
+4                   Chinese 
+
+5                   Japanese 
+
+6                   Other Asian or Pacific Islander 
+
+7                   Other race, nec 
+
+8                   Two major races
+
+9                   Three or more major races 
+
+```{r}
+
+race <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, RACE) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(RACE = as.numeric(RACE),
+         RACE = ifelse(RACE == "1", "White", RACE),
+         RACE = ifelse(RACE == "2", "Black/African American", RACE),
+         RACE = ifelse(RACE == "3", "American Indian or Alaska Native", RACE),
+         RACE = ifelse(RACE == "4", "Chinese", RACE),
+         RACE = ifelse(RACE == "5", "Japanese", RACE),
+         RACE = ifelse(RACE == "6", "Other Asian or Pacific Islander", RACE),
+         RACE = ifelse(RACE == "7", "Other", RACE),
+         RACE = ifelse(RACE == "8", "Two major races", RACE),
+         RACE = ifelse(RACE == "9", "Three or more major races", RACE))
+
+race
+
+```
+
+## Ethnicity Breakdown
+0                   Not Hispanic
+
+1                   Mexican
+
+2                   Puerto Rican
+
+3                   Cuban
+
+4                   Other
+
+9                   Not Reported
+
+```{r}
+
+ethnicity <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, HISPAN) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(HISPAN = as.numeric(HISPAN),
+         HISPAN = ifelse(HISPAN == "0", "Not Hispanic", HISPAN),
+         HISPAN = ifelse(HISPAN == "1", "Mexican", HISPAN),
+         HISPAN = ifelse(HISPAN == "2", "Puerto Rican", HISPAN),
+         HISPAN = ifelse(HISPAN == "3", "Cuban", HISPAN),
+         HISPAN = ifelse(HISPAN == "4", "Other", HISPAN),
+         HISPAN = ifelse(HISPAN == "9", "Not Reported", HISPAN))
+
+ethnicity
+
+```
+## Age Breakdown
+
+```{r}
+
+age <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, AGE) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME)
+
+age
+
+```
+
+## Citizen Breakdown
+0                   N/A
+
+1                   Born abroad of American parents
+
+2                   Naturalized citizen
+
+3                   Not a citizen
+
+```{r}
+
+citizenship <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, CITIZEN) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(CITIZEN = as.numeric(CITIZEN),
+         CITIZEN = ifelse(CITIZEN == "0", "NA", CITIZEN),
+         CITIZEN = ifelse(CITIZEN == "1", "Born abroad of American parents", CITIZEN),
+         CITIZEN = ifelse(CITIZEN == "2", "Naturalized citizen", CITIZEN),
+         CITIZEN = ifelse(CITIZEN == "3", "Not a citizen", CITIZEN))
+
+citizenship
+
+```
+
+
+## Language Breakdown
+Lots of languages reported, so noted most apparent
+1           English
+
+12          Spanish
+
+31          Hindi
+
+50          Vietnamese
+
+2           German
+
+40          Dravidian
+
+
+
+```{r}
+
+language_codes <- read.csv("language_codes.csv") %>% 
+  select(LANGUAGE, language_spoken)
+
+language <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, LANGUAGE) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(LANGUAGE = as.numeric(LANGUAGE)) %>% 
+  left_join(., language_codes, by = "LANGUAGE") %>% 
+  select(COUNTYNAME, language_spoken, total_PERWT)
+
+language_codes
+
+```
+
+## English Speaking Abilities 
+Lots of languages reported, so noted most apparent
+1                   Does not speak English
+
+2                   Yes, speaks English...
+
+3                   Yes, speaks only English
+
+4                   Yes, speaks very well
+
+5                   Yes, speaks well
+
+6                   Yes, but not well
+```{r}
+
+english_speaking <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, SPEAKENG) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(SPEAKENG = as.numeric(SPEAKENG),
+         SPEAKENG = ifelse(SPEAKENG == "1", "Does not speak English", SPEAKENG),
+         SPEAKENG = ifelse(SPEAKENG == "2", "Yes, speaks English...", SPEAKENG),
+         SPEAKENG = ifelse(SPEAKENG == "3", "Yes, speaks only English", SPEAKENG),
+         SPEAKENG = ifelse(SPEAKENG == "4", "Yes, speaks very well", SPEAKENG),
+         SPEAKENG = ifelse(SPEAKENG == "5", "Yes, speaks well", SPEAKENG),
+         SPEAKENG = ifelse(SPEAKENG == "6", "Yes, but not well", SPEAKENG))
+
+english_speaking
+
+```
+
+
+## Health Coverage
+Lots of languages reported, so noted most apparent
+
+HCOVANY             Any health insurance coverage
+
+1                   No health insurance coverage
+
+2                   With health insurance coverage
+
+
+
+HCOVPUB             Public health insurance coverage
+
+1                   Without public health insurance coverage
+
+2                   With public health insurance coverage
+
+```{r}
+
+health_coverage_any <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, HCOVANY) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(HCOVANY = as.numeric(HCOVANY),
+         HCOVANY = ifelse(HCOVANY == "1", "No health insurance coverage", HCOVANY),
+         HCOVANY = ifelse(HCOVANY == "2", "With health insurance coverage", HCOVANY))
+
+health_coverage_any
+
+
+health_coverage_public <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, HCOVPUB) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(HCOVPUB = as.numeric(HCOVPUB),
+         HCOVPUB = ifelse(HCOVPUB == "1", "Without public health insurance coverage", HCOVPUB),
+         HCOVPUB = ifelse(HCOVPUB == "2", "With public health insurance coverage", HCOVPUB))
+
+health_coverage_public
+
+```
+
+## Educational Attainment 
+00                  N/A or no schooling
+
+01                  Nursery school to grade 4
+
+02                  Grade 5, 6, 7, or 8
+
+03                  Grade 9
+
+04                  Grade 10
+
+05                  Grade 11
+
+06                  Grade 12
+
+07                  1 year of college
+
+08                  2 years of college
+
+09                  3 years of college
+
+10                  4 years of college
+
+11                  5+ years of college
+```{r}
+
+educ_codes <- tibble("EDUC" = c(00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11),
+                     "educ_attainment" = c("N/A or no schooling", "Nursery school to grade 4", "Grade 5, 6, 7, or 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12", "1 year of college", "2 years of college", "3 years of college", "4 years of college", "5+ years of college"))
+
+educ_attainment <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, EDUC) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(EDUC = as.numeric(EDUC)) %>% 
+  left_join(., educ_codes, by = "EDUC") %>% 
+  select(COUNTYNAME, educ_attainment, total_PERWT)
+
+educ_attainment
+
+```
+
+## Available For Work 
+0                   N/A
+
+1                   No, already has job
+
+2                   No, temporarily ill
+
+3                   No, other reason(s)
+
+4                   Yes, available for work
+
+5                   Not reported
+```{r}
+
+available_for_work <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, AVAILBLE) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(AVAILBLE = as.numeric(AVAILBLE),
+         AVAILBLE = ifelse(AVAILBLE == "1", "No, already has job", AVAILBLE),
+         AVAILBLE = ifelse(AVAILBLE == "2", "No, temporarily ill", AVAILBLE),
+         AVAILBLE = ifelse(AVAILBLE == "3", "No, other reason(s)", AVAILBLE),
+         AVAILBLE = ifelse(AVAILBLE == "4", "Yes, available for work", AVAILBLE),
+         AVAILBLE = ifelse(AVAILBLE == "5", "Not reported", AVAILBLE),
+         AVAILBLE = ifelse(AVAILBLE == "0", "N/A", AVAILBLE))
+
+available_for_work
+
+```
+
+## Looking For Work 
+1                   No, did not look for work
+
+2                   Yes, looked for work
+
+3                   Not reported
+```{r}
+
+looking_for_work <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, LOOKING) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(LOOKING = as.numeric(LOOKING),
+         LOOKING = ifelse(LOOKING == "1", "No, did not look for work", LOOKING),
+         LOOKING = ifelse(LOOKING == "2", "Yes, looked for work", LOOKING),
+         LOOKING = ifelse(LOOKING == "3", "Not reported", LOOKING))
+
+looking_for_work
+
+```
+
+
+## Food Stamps (enrolled vs eligible)
+1                   No
+
+2                   Yes
+```{r}
+
+food_stamps <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, FOODSTMP) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(FOODSTMP = as.numeric(FOODSTMP),
+         FOODSTMP = ifelse(FOODSTMP == "1", "No", FOODSTMP),
+         FOODSTMP = ifelse(FOODSTMP == "2", "Yes", FOODSTMP))
+
+food_stamps
+
+```
+
+
+## Metropolitan Status (figure out what this means)
+0                   Metropolitan status indeterminable (mixed)
+
+1                   Not in metropolitan area
+
+                    In metropolitan area:
+                    
+2                   In metropolitan area: In central/principal city
+
+3                   In metropolitan area: Not in central/principal city
+
+4                   In metropolitan area: Central/principal city status indeterminable (mixed)
+```{r}
+
+metro_status <- OY_data_filtered %>% 
+  group_by(COUNTYNAME, METRO) %>% 
+  summarise(total_PERWT = sum(PERWT, na.rm = TRUE)) %>% 
+  arrange(COUNTYNAME) %>% 
+  ungroup() %>% 
+  mutate(METRO = as.numeric(METRO),
+         METRO = ifelse(METRO == "1", "Not in metropolitan area", METRO),
+         METRO = ifelse(METRO == "2", "In metropolitan area: In central/principal city", METRO),
+         METRO = ifelse(METRO == "3", "In metropolitan area: Not in central/principal city", METRO),
+         METRO = ifelse(METRO == "4", "In metropolitan area: Central/principal city status indeterminable (mixed)", METRO),
+         METRO = ifelse(METRO == "0", "Metropolitan status indeterminable (mixed)", METRO))
+
+metro_status
+
+```
+## Writing to an Excel
+
+```{r}
+
+x <- list(cbind(" "=rownames(oy_pop), oy_pop),
+          cbind(" "=rownames(age), age),
+          cbind(" "=rownames(race), race),
+          cbind(" "=rownames(ethnicity), ethnicity),
+          cbind(" "=rownames(citizenship), citizenship),
+          cbind(" "=rownames(educ_attainment), educ_attainment),
+          cbind(" "=rownames(english_speaking), english_speaking),
+          cbind(" "=rownames(food_stamps), food_stamps),
+          cbind(" "=rownames(health_coverage_any), health_coverage_any),
+          cbind(" "=rownames(health_coverage_public), health_coverage_public),
+          cbind(" "=rownames(language), language),
+          cbind(" "=rownames(available_for_work), available_for_work),
+          cbind(" "=rownames(looking_for_work), looking_for_work),
+          cbind(" "=rownames(metro_status), metro_status))
+
+names(x) <- c("oy_pop", "age", "race", "ethnicity", "citizenship", "educ_attainment", "english_speaking", "food_stamps", "health_coverage_any", "health_coverage_public", "lanuguage", "available_for_work", "looking_for_work", "metro_status")
+ 
+#write_xlsx(x, path="/Users/zachreandrews/C@R/CHILDREN AT RISK/Programs - CSME - PK12 and Research/Opportunity Youth/OYMetrics.xlsx")
+
+write_xlsx(x, path="C:/Users/andre/OneDrive - CHILDREN AT RISK/CSME - PK12 and Research/Opportunity Youth/OY_IPUMS_Analysis/OYMetrics.xlsx")
+
+```
